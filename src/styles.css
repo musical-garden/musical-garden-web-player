@@ -8814,7 +8814,27 @@ form.search-dialog.audio-file-dialog .search-actions button,
 .lyrics-life-reflection:hover { color: #97e5dd; }
 .lyrics-life-reflection:focus-visible { outline: 1px solid #97e5dd; outline-offset: 6px; }
 @media (max-width: 900px) {
- .lyrics-life-reflection { top: auto; bottom: calc(94px + env(safe-area-inset-bottom)); left: 22px; width: calc(100% - 44px); text-align: center; }
+ .lyrics-page:has(.lyrics-life-reflection) {
+  grid-template-rows: minmax(0, 1fr) auto;
+ }
+ .lyrics-life-reflection {
+  position: relative;
+  inset: auto;
+  grid-row: 2;
+  grid-column: 1;
+  width: auto;
+  min-height: 0;
+  max-height: min(25dvh, 160px);
+  margin: 0 22px calc(84px + env(safe-area-inset-bottom));
+  padding: 12px 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  text-align: center;
+ }
  .lyrics-life-reflection-text { font-size: 16px; }
- .lyrics-page:has(.lyrics-life-reflection) .lyrics-page-body { padding-bottom: calc(158px + env(safe-area-inset-bottom)); }
+ .lyrics-page:has(.lyrics-life-reflection) .lyrics-page-body {
+  grid-row: 1;
+  grid-column: 1;
+  padding-bottom: 12px;
+ }
 }
