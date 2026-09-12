@@ -8839,3 +8839,32 @@ html[data-playback-page-hidden="true"] .lyrics-page *::before,
 html[data-playback-page-hidden="true"] .lyrics-page *::after {
  animation-play-state: paused !important;
 }
+
+/* Mobile: keep the palette and soft glow, avoid full-screen filtered animation. */
+@media (max-width: 900px), (pointer: coarse) {
+ .lyrics-cinematic-scene { opacity: .54; transition: none; }
+ .lyrics-cinematic-scene.is-paused { opacity: .42; }
+ .lyrics-cover-art,
+ .lyrics-light-threads,
+ .lyrics-glass-depth,
+ .lyrics-film-texture { display: none; }
+ .lyrics-cinematic-scene::before { mix-blend-mode: normal; }
+ .lyrics-color-field {
+  inset: 0; filter: none; mix-blend-mode: normal;
+  transform: none !important; animation: none; will-change: auto;
+ }
+ .lyrics-color-field.base {
+  background:
+   radial-gradient(ellipse at 18% 32%, rgba(var(--lyrics-tone-a), .26), transparent 68%),
+   radial-gradient(ellipse at 82% 68%, rgba(var(--lyrics-tone-b), .2), transparent 70%);
+ }
+ .lyrics-color-field.lift {
+  background: radial-gradient(ellipse at 55% 45%, rgba(var(--lyrics-tone-c), .18), transparent 70%);
+  animation: mobileLyricsGlow 18s ease-in-out infinite alternate;
+ }
+ .lyrics-stage-light { opacity: .2; box-shadow: none; }
+}
+@keyframes mobileLyricsGlow { from { opacity: .08; } to { opacity: .18; } }
+@media (prefers-reduced-motion: reduce) {
+ .lyrics-color-field.lift { animation: none; }
+}

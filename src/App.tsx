@@ -1,3 +1,4 @@
+import { createLyricPaintGate } from "./lyricPaintGate";
 import { createEqualizerRouting } from "./equalizerRouting";
 import { createHeartbeatScheduler } from "./heartbeatScheduler";
 import { startVisiblePlaybackLoop } from "./playbackScheduler";
@@ -723,6 +724,13 @@ function DocumentTreeIcon() {
 }
 
 function App() {
+  const [compactLyricsEffects, setCompactLyricsEffects] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 900px), (pointer: coarse)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px), (pointer: coarse)");
+    const update = () => setCompactLyricsEffects(query.matches);
+    update(); query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const [heartbeatScheduler] = useState(createHeartbeatScheduler);
   const heartbeatRequestsRef = useRef(new Set<string>());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -1255,7 +1263,7 @@ function App() {
   }, [currentTrack?.id, currentTrack?.quality, currentTrack?.format]);
 
   useEffect(() => {
-    if (activePage !== "lyrics" || !isPlaying || !currentTrack?.stream_url || !canUseEnhancedAudioEffects(currentTrack)) {
+    if (compactLyricsEffects || activePage !== "lyrics" || !isPlaying || !currentTrack?.stream_url || !canUseEnhancedAudioEffects(currentTrack)) {
       stopLyricsVisualizer();
       return;
     }
@@ -1286,7 +1294,7 @@ function App() {
       }
     }, lyricsVisualizerPaintIntervalMs);
     return () => stopLyricsVisualizer();
-  }, [activePage, isPlaying, currentTrack?.id, currentTrack?.stream_url]);
+  }, [activePage, isPlaying, currentTrack?.id, currentTrack?.stream_url, compactLyricsEffects]);
 
   useEffect(() => {
     const syncVisibility = () => {
@@ -5901,12 +5909,19 @@ function FullLyricsPage({
   useEffect(() => {
     if (!isPlaying || !currentTrack?.id || !currentTrack.stream_url) return;
     const trackID = currentTrack.id;
+    const shouldPaint = createLyricPaintGate();
+    const hasKaraoke = lines.some(line => Boolean(line.words?.length));
     return startVisiblePlaybackLoop(() => {
       const audio = audioRef.current;
-      if (audio && Number.isFinite(audio.currentTime)) setLyricClock({ trackID, time: audio.currentTime });
-    }, lyricsClockPaintIntervalMs, true);
-  }, [isPlaying, currentTrack?.id, currentTrack?.stream_url, audioRef]);
-  const currentTime = isPlaying && lyricClock.trackID === currentTrack?.id ? lyricClock.time : fallbackCurrentTime;
+      if (!audio || !Number.isFinite(audio.currentTime)) return;
+      const nextLine = getActiveLyricIndex(lines, audio.currentTime);
+      if (shouldPaint(nextLine, Boolean(lines[nextLine]?.words?.length))) {
+        setLyricClock({ trackID, time: audio.currentTime });
+      }
+    }, lyricsClockPaintIntervalMs, hasKaraoke);
+  }, [isPlaying, currentTrack?.id, currentTrack?.stream_url, audioRef, lines]);
+  const currentTime = isPlaying && lyricClock.trackID === currentTrack?.id
+    ? audioRef.current?.currentTime ?? lyricClock.time : fallbackCurrentTime;
   const activeLineIndex = getActiveLyricIndex(lines, currentTime);
   const activeLineRef = useRef<HTMLParagraphElement | null>(null);
   const lyricsListRef = useRef<HTMLDivElement | null>(null);
@@ -6676,7 +6691,7 @@ const MemoizedFullLyricsPage = memo(FullLyricsPage, (previous, next) => {
     previous.currentTrack === next.currentTrack &&
     previous.lines === next.lines &&
     previous.audioRef === next.audioRef &&
-    previous.currentTime === next.currentTime &&
+    (next.isPlaying || previous.currentTime === next.currentTime) &&
     previous.visualizer === next.visualizer &&
     previous.isPlaying === next.isPlaying
   );

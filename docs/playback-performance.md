@@ -21,3 +21,7 @@ Next-song preloading still uses one audio element. Pausing does not erase its so
 Run `npm run build` and `node --experimental-strip-types --test tests/*.test.mjs` with Node 24. Tests cover visible/hidden clock behavior, cleanup, EQ identity routing, rapid EQ changes, and shared heartbeat deadlines.
 
 These checks do not measure iPhone power consumption or replace device audio/visual testing. Compare the same track, network and brightness, including karaoke seeking, EQ changes, next-song playback, pause/resume, and lock-screen playback. No quantified battery or temperature improvement is claimed.
+
+## Foreground mobile heat follow-up
+
+Small screens and coarse-pointer devices use an unfiltered radial-gradient background with a slow opacity-only glow. Full-screen blurred moving cover, light-thread SVG, blended texture and depth layers are not drawn there; desktop effects remain available. Mobile skips spectrum reads used only by these effects. Normal line lyrics do not repaint on each clock sample; active word-timed karaoke keeps its original cadence. The clock continues checking line boundaries and seeking at the existing 33 ms interval. Foreground appearance is intentionally softer on mobile; audio, controls and lyric layout are unchanged. True device heat reduction still requires A/B testing.
