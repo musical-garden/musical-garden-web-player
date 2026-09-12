@@ -610,3 +610,10 @@ export function deleteNote(noteID: number, userID: number): Promise<{ ok: boolea
     method: "DELETE"
   });
 }
+
+export function sendRegistrationCode(email: string): Promise<{ retry_after_seconds: number }> {
+  return request("/api/auth/email-code", { method: "POST", body: JSON.stringify({ email }) });
+}
+export function registerEmailUser(payload: { email: string; code: string; username: string; password: string }): Promise<{message: string}> {
+  return request("/api/auth/register", { method: "POST", body: JSON.stringify(payload) });
+}

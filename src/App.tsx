@@ -53,6 +53,8 @@ import {
   claimPlaybackSession,
   releasePlaybackSession,
   loginUser,
+  registerEmailUser,
+  sendRegistrationCode,
   logoutUser,
   refreshTracks,
   removeFavoriteTrack,
@@ -98,12 +100,14 @@ type AudioStreamRecoveryState = {
   recovering: boolean;
 };
 type AuthFormState = {
+  mode?: string;
+  code?: string;
   nickname: string;
   phone: string;
   password: string;
 };
 type ManagedUserFormState = {
-  phone: string;
+  email: string;
   nickname: string;
   password: string;
   role: ManagedUserRequest["role"];
@@ -355,7 +359,7 @@ const manualLibraryRefreshCooldownMs = 60_000;
 const lyricsChromeAutoHideMs = 2800;
 const passwordMinLength = 6;
 const passwordMaxLength = 64;
-const mainlandPhonePattern = /^1[3-9]\d{9}$/;
+
 const userRoleLabels: Record<UserRole, string> = {
   super_admin: "超级管理员",
   admin: "普通管理员",
@@ -1435,7 +1439,7 @@ function App() {
           const nextSession: AuthSession = {
             ...previous,
             userId: response.user.id,
-            phone: response.user.phone,
+            phone: response.user.email || response.user.phone,
             nickname: response.user.nickname,
             role: normalizeUserRole(response.user.role)
           };
@@ -2555,9 +2559,15 @@ function App() {
 
     setIsAuthSubmitting(true);
     try {
-      const phone = normalizePhone(authForm.phone);
+      const phone = authForm.phone.trim().toLowerCase();
+      if (authForm.mode === "register") {
+        await registerEmailUser({ email: phone, code: authForm.code ?? "", username: authForm.nickname, password: authForm.password });
+        setAuthForm(previous => ({ ...previous, mode: "login", code: "", password: "" }));
+        setAuthMessage("注册成功，请使用邮箱或用户名和密码登录");
+        return;
+      }
       const response = await loginUser({
-        phone,
+        account: phone,
         password: authForm.password
       });
       const nextSession = createAuthSession(response);
@@ -2571,7 +2581,7 @@ function App() {
       setAuthForm((previous) => ({
         ...previous,
         nickname: response.user.nickname,
-        phone: response.user.phone,
+        phone: response.user.email || response.user.phone,
         password: ""
       }));
       setAuthMessage("");
@@ -2899,7 +2909,7 @@ function App() {
   function updateManagedUserForm(field: keyof ManagedUserFormState, value: string) {
     setManagedUserForm((previous) => ({
       ...previous,
-      [field]: field === "phone" ? normalizePhone(value).slice(0, 11) : field === "password" ? value.slice(0, passwordMaxLength) : value
+      [field]: field === "email" ? value.slice(0, 254) : field === "password" ? value.slice(0, passwordMaxLength) : value
     }));
     setManagedUsersMessage("");
   }
@@ -2909,14 +2919,14 @@ function App() {
     if (!canRoleManageUsers(authSession?.role) || isManagedUserSubmitting) {
       return;
     }
-    const phone = normalizePhone(managedUserForm.phone);
-    if (!mainlandPhonePattern.test(phone)) {
-      setManagedUsersMessage("请输入有效的中国大陆手机号码");
+    const email = managedUserForm.email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setManagedUsersMessage("请输入有效的邮箱地址");
       return;
     }
     const nickname = managedUserForm.nickname.trim();
     if (!nickname) {
-      setManagedUsersMessage("昵称不能为空");
+      setManagedUsersMessage("用户名不能为空");
       return;
     }
     if (managedUserForm.password.length < passwordMinLength || managedUserForm.password.length > passwordMaxLength) {
@@ -2927,8 +2937,8 @@ function App() {
     setIsManagedUserSubmitting(true);
     try {
       const response = await createManagedUser({
-        phone,
-        nickname,
+        email,
+        username: nickname,
         password: managedUserForm.password,
         role: managedUserForm.role
       });
@@ -6772,7 +6782,7 @@ function createEmptyAuthForm(): AuthFormState {
 
 function createEmptyManagedUserForm(): ManagedUserFormState {
   return {
-    phone: "",
+    email: "",
     nickname: "",
     password: "",
     role: "user"
@@ -6871,13 +6881,18 @@ function isAuthFormReady(form: AuthFormState) {
 }
 
 function getAuthValidationMessage(form: AuthFormState) {
-  const phone = normalizePhone(form.phone);
-
-  if (!mainlandPhonePattern.test(phone)) {
-    return "请输入有效的中国大陆手机号码";
+  const account = form.phone.trim();
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account);
+  if (form.mode === "register") {
+    if (!isEmail) return "请输入有效的邮箱地址";
+    if (!/^(?=.*\p{L})[\p{L}\p{N}_-]{1,24}$/u.test(form.nickname.trim())) return "用户名需为1-24个字符，支持文字、数字、下划线和短横线，至少包含一个文字或字母";
+    if (!/^\d{6}$/.test(form.code ?? "")) return "请输入6位数字验证码";
+  } else if (!isEmail && !/^(?=.*\p{L})[\p{L}\p{N}_-]{1,24}$/u.test(account)) {
+    return "请输入邮箱或用户名";
   }
-  if (form.password.length < passwordMinLength || form.password.length > passwordMaxLength) {
-    return `密码长度需为${passwordMinLength}-${passwordMaxLength}位`;
+  const passwordBytes = new TextEncoder().encode(form.password).length;
+  if (passwordBytes < passwordMinLength || passwordBytes > passwordMaxLength) {
+    return "密码过短或过长，请使用6-64位字母、数字或符号";
   }
   return "";
 }
@@ -6886,7 +6901,7 @@ function createAuthSession(response: AuthResponse): AuthSession {
   const expiresAt = response.expires_at ? Date.parse(response.expires_at) : Date.now() + authSessionFallbackDurationMs;
   return {
     userId: response.user.id,
-    phone: response.user.phone,
+    phone: response.user.email || response.user.phone,
     nickname: response.user.nickname,
     role: normalizeUserRole(response.user.role),
     token: response.token?.trim() || "",
@@ -6903,12 +6918,12 @@ function persistAuthSession(session: AuthSession) {
   writeLocalStorage(authSessionStorageKey, JSON.stringify(session));
 }
 
-function persistAuthProfile(user: Pick<AuthUser, "nickname" | "phone">) {
+function persistAuthProfile(user: Pick<AuthUser, "nickname" | "phone" | "email">) {
   writeLocalStorage(
     authProfileStorageKey,
     JSON.stringify({
       nickname: user.nickname.trim(),
-      phone: normalizePhone(user.phone)
+      phone: user.email || user.phone
     })
   );
 }
@@ -6946,7 +6961,7 @@ function normalizeAuthField(field: keyof AuthFormState, value: string | boolean)
     return value;
   }
   if (field === "phone") {
-    return normalizePhone(value).slice(0, 11);
+    return value.slice(0, 254);
   }
   if (field === "password") {
     return value.slice(0, passwordMaxLength);
@@ -8134,17 +8149,17 @@ function getProfileAvatarText(authSession: AuthSession) {
     return Array.from(nickname)[0]?.toUpperCase() ?? "我";
   }
 
-  const phone = normalizePhone(authSession.phone);
-  return phone ? phone.slice(-2) : "我";
+  return [...authSession.nickname.trim()].slice(0, 1).join("") || "我";
 }
 
 function formatProfilePhone(phone: string) {
+  if (phone.includes("@")) return phone;
   const normalized = normalizePhone(phone);
   if (normalized.length === 11) {
     return `${normalized.slice(0, 3)} ${normalized.slice(3, 7)} ${normalized.slice(7)}`;
   }
 
-  return normalized || "未绑定手机号";
+  return normalized || "未设置账号";
 }
 
 function formatOnlinePresence(users: OnlineUser[], onlineCount: number) {
@@ -11920,7 +11935,7 @@ function EmptyPage({
       </div>
       <div className="profile-summary-copy">
         <div className="profile-summary-name">{profileDisplayName}</div>
-        <div className="profile-summary-phone">手机号 {profilePhone}</div>
+        <div className="profile-summary-phone">账号 {profilePhone}</div>
         <div className="profile-summary-role">{userRoleLabels[normalizeUserRole(authSession?.role)]}</div>
       </div>
     </div>
@@ -12291,20 +12306,20 @@ function UserManagementPage({
 
       <form className="user-manager-form" onSubmit={onSubmit}>
         <input
-          type="tel"
-          inputMode="tel"
-          value={form.phone}
-          maxLength={11}
-          placeholder="手机号"
-          aria-label="手机号"
-          onChange={(event) => onChangeForm("phone", event.target.value)}
+          type="email"
+          autoComplete="username"
+          value={form.email}
+          maxLength={254}
+          placeholder="邮箱账号"
+          aria-label="邮箱账号"
+          onChange={(event) => onChangeForm("email", event.target.value)}
         />
         <input
           type="text"
           value={form.nickname}
           maxLength={24}
-          placeholder="昵称"
-          aria-label="昵称"
+          placeholder="用户名"
+          aria-label="用户名"
           onChange={(event) => onChangeForm("nickname", event.target.value)}
         />
         <input
@@ -12342,7 +12357,7 @@ function UserManagementPage({
             <div key={user.id} className="user-manager-row" role="row">
               <div className="user-manager-user">
                 <strong>{user.nickname}</strong>
-                <span>{formatProfilePhone(user.phone)}</span>
+                <span>{formatProfilePhone(user.email || user.phone)}</span>
               </div>
               {user.role === "super_admin" ? (
                 <span className="user-role-badge">{userRoleLabels[user.role]}</span>
@@ -12386,7 +12401,7 @@ function UserManagementPage({
         <div className="search-dialog-backdrop" role="presentation" onClick={onCloseDelete}>
           <div className="search-dialog user-delete-dialog" role="dialog" aria-modal="true" aria-label="删除用户" onClick={(event) => event.stopPropagation()}>
             <h2>删除用户</h2>
-            <p>{deleteTarget.nickname}（{formatProfilePhone(deleteTarget.phone)}）</p>
+            <p>{deleteTarget.nickname}（{formatProfilePhone(deleteTarget.email || deleteTarget.phone)}）</p>
             <div className="search-actions">
               <button type="button" disabled={isDeleting} onClick={onCloseDelete}>
                 取消
@@ -13057,7 +13072,6 @@ function AuthPage({
   isSubmitting,
   showPassword,
   onChange,
-  onCloseAttempt,
   onSubmit,
   onTogglePassword
 }: {
@@ -13071,65 +13085,73 @@ function AuthPage({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onTogglePassword: () => void;
 }) {
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeMessage, setCodeMessage] = useState("");
+  const [retryAt, setRetryAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const isRegister = form.mode === "register";
+  const remaining = Math.max(0, Math.ceil((retryAt - now) / 1000));
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
+  async function sendCode() {
+    if (sendingCode || remaining > 0) return;
+    setSendingCode(true);
+    setCodeMessage("");
+    try {
+      const result = await sendRegistrationCode(form.phone.trim().toLowerCase());
+      setNow(Date.now());
+      setRetryAt(Date.now() + result.retry_after_seconds * 1000);
+      setCodeMessage("验证码已发送，10分钟内有效，请检查收件箱和垃圾邮件");
+    } catch (error) {
+      setCodeMessage(error instanceof Error ? error.message : "发送失败，请稍后重试");
+    } finally { setSendingCode(false); }
+  }
+  function switchMode(mode: string) {
+    if (mode === "register") {
+      if (!form.phone.includes("@")) onChange("phone", "");
+      onChange("nickname", "");
+    }
+    onChange("password", "");
+    onChange("mode", mode);
+    onChange("code", "");
+    setCodeMessage("");
+  }
   return (
-    <section className="auth-gate" role="dialog" aria-modal="true" aria-label="手机号登录">
+    <section className={"auth-gate listening-auth" + (isRegister ? " is-register" : "")} role="dialog" aria-modal="true" aria-labelledby="listening-auth-title">
+      <div className="listening-masthead"><span>音乐，让生活温柔一点。</span><span>YOUR PRIVATE LISTENING ROOM</span></div>
       <div className="auth-panel">
-        <button className="auth-close-button" type="button" aria-label="关闭登录页" onClick={onCloseAttempt}>
-          <CloseIcon />
-        </button>
-
+        <aside className="listening-hero" aria-label="阳光下的木质唱机与聆听空间">
+          <div className="listening-brand"><span className="listening-brand-mark" aria-hidden="true">♪</span><div>音乐花园<small>MUSICAL GARDEN</small></div></div>
+          <div className="listening-hero-copy"><p>在音乐里，<br />遇见更好的自己。</p><span className="listening-rule" /><span>好音乐，像阳光一样。<br />每天都在这里等你。</span></div>
+          <span className="listening-hero-caption">SLOW DOWN. LISTEN CLOSELY.</span>
+        </aside>
         <div className="auth-content">
-          <h1>手机号登录</h1>
-
+          <nav className="listening-tabs" aria-label="登录与注册">
+            <button type="button" aria-pressed={!isRegister} disabled={isSubmitting || sendingCode} onClick={() => switchMode("login")}>登录</button>
+            <button type="button" aria-pressed={isRegister} disabled={isSubmitting || sendingCode} onClick={() => switchMode("register")}>注册</button>
+          </nav>
+          <header className="listening-heading"><h1 id="listening-auth-title">{isRegister ? "让喜欢，有个归处" : "欢迎回来"}</h1><p>{isRegister ? "创建账号，收藏属于你的每一段旋律。" : "继续你的私人音乐时光。"}</p></header>
           <form className="auth-form" onSubmit={onSubmit}>
-            <div className="auth-fields">
-              <div className="auth-row">
-                <span className="auth-label">国家/地区</span>
-                <span className="auth-region">中国大陆（+86）</span>
-              </div>
-              <AuthField
-                label="手机号"
-                name="phone"
-                placeholder="请填写手机号码"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                value={form.phone}
-                maxLength={11}
-                onChange={(value) => onChange("phone", value)}
-              />
-              <AuthField
-                label="密码"
-                name="password"
-                placeholder="请输入密码"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                value={form.password}
-                maxLength={passwordMaxLength}
-                onChange={(value) => onChange("password", value)}
-                trailing={
-                  <button
-                    className="password-visibility-button"
-                    type="button"
-                    aria-label={showPassword ? "隐藏密码" : "显示密码"}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={onTogglePassword}
-                  >
-                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                  </button>
-                }
-              />
-            </div>
-
+            <fieldset className="auth-fields" disabled={isSubmitting || sendingCode}>
+              <AuthField label={isRegister ? "邮箱" : "邮箱或用户名"} name="phone" placeholder={isRegister ? "输入邮箱地址" : "输入邮箱或用户名"} type={isRegister ? "email" : "text"} autoComplete={isRegister ? "email" : "username"} value={form.phone} maxLength={254} onChange={value => onChange("phone", value)} />
+              {isRegister ? <AuthField label="用户名" name="nickname" placeholder="起一个独特的名字" autoComplete="username" value={form.nickname} maxLength={24} onChange={value => onChange("nickname", value)} /> : null}
+              <AuthField label="密码" name="password" placeholder={isRegister ? "设置你的登录密码" : "输入密码"} type={showPassword ? "text" : "password"} autoComplete={isRegister ? "new-password" : "current-password"} value={form.password} maxLength={passwordMaxLength} onChange={value => onChange("password", value)} trailing={<button className="password-visibility-button" type="button" aria-label={showPassword ? "隐藏密码" : "显示密码"} onMouseDown={event => event.preventDefault()} onClick={onTogglePassword}>{showPassword ? <EyeOffIcon /> : <EyeIcon />}</button>} />
+              {isRegister ? <div className="listening-code-row"><AuthField label="邮箱验证码" name="code" placeholder="6位数字验证码" inputMode="numeric" autoComplete="one-time-code" value={form.code ?? ""} maxLength={6} onChange={value => onChange("code", value.replace(/\D/g, ""))} /><button className="auth-send-code" type="button" disabled={sendingCode || isSubmitting || remaining > 0 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.phone.trim())} onClick={() => void sendCode()}>{sendingCode ? "发送中…" : remaining > 0 ? remaining + "秒后重发" : "获取验证码"}</button></div> : null}
+            </fieldset>
             <div className="auth-footer">
-              {message ? <p className="auth-message">{message}</p> : null}
-              <button className="auth-submit" type="submit" disabled={!canSubmit}>
-                {isSubmitting ? "提交中" : "登录"}
-              </button>
+              {codeMessage && isRegister ? <p className="auth-message listening-code-message" role="status">{codeMessage}</p> : null}
+              {message ? <p className="auth-message" role="status">{message}</p> : null}
+              <button className="auth-submit" type="submit" disabled={!canSubmit || sendingCode}><span>{isSubmitting ? "请稍候…" : isRegister ? "开启我的音乐时光" : "进入音乐花园"}</span><span aria-hidden="true">→</span></button>
+              <p className="listening-switch">{isRegister ? "已有账号？" : "没有账号？"}<button type="button" disabled={isSubmitting || sendingCode} onClick={() => switchMode(isRegister ? "login" : "register")}>{isRegister ? "立即登录" : "立即注册"}</button></p>
             </div>
           </form>
+          <div className="listening-signature">Music for a quieter day.</div>
         </div>
       </div>
+      <footer className="listening-bottom"><span>MUSICAL GARDEN</span><span>每一种心情，都有它的声音。</span></footer>
     </section>
   );
 }
@@ -13151,7 +13173,7 @@ function AuthField({
   placeholder: string;
   value: string;
   type?: string;
-  inputMode?: "text" | "tel";
+  inputMode?: "text" | "tel" | "numeric";
   autoComplete?: string;
   maxLength?: number;
   trailing?: ReactNode;

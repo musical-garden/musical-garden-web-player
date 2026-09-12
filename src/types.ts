@@ -56,6 +56,8 @@ export type LibrarySettingResponse = {
 };
 
 export type AuthUser = {
+  username?: string;
+  email?: string;
   id: number;
   phone: string;
   country_code: string;
@@ -71,11 +73,12 @@ export type AuthResponse = {
 };
 
 export type LoginRequest = {
-  phone: string;
+  account: string;
   password: string;
 };
 
 export type ManagedUser = {
+  email?: string;
   id: number;
   phone: string;
   country_code: string;
@@ -87,8 +90,8 @@ export type ManagedUser = {
 };
 
 export type ManagedUserRequest = {
-  phone: string;
-  nickname: string;
+  email: string;
+  username: string;
   password: string;
   role: Exclude<UserRole, "super_admin">;
 };

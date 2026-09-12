@@ -1,0 +1,119 @@
+.listening-auth.auth-gate {
+  --listening-ink: #363830;
+  --listening-muted: #77786e;
+  --listening-line: #d9d6ce;
+  display: block;
+  padding: 0 36px;
+  background: #f4f2ed;
+  color: var(--listening-ink);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.listening-masthead, .listening-bottom {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  color: #75746b;
+  font-size: 10px;
+  letter-spacing: .2em;
+  min-height: 60px;
+}
+.listening-masthead > :first-child { font-size: 12px; letter-spacing: .25em; }
+.listening-auth .auth-panel {
+  display: grid;
+  grid-template-columns: 1.08fr 1fr;
+  width: 100%;
+  max-width: 1280px;
+  min-height: min(740px, calc(100dvh - 120px));
+  height: auto;
+  border: 1px solid #ddd8cf;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fbfaf7;
+  box-shadow: 0 12px 45px #40332408;
+}
+.listening-hero {
+  position: relative;
+  min-height: 650px;
+  background: #ded2bc url('/assets/listening-room.png') center 22% / cover no-repeat;
+  padding: 38px 42px;
+  overflow: hidden;
+}
+.listening-brand { display: flex; align-items: center; gap: 12px; font: 26px "Songti SC", "STSong", SimSun, serif; letter-spacing: .12em; color: #30352a; }
+.listening-brand-mark { font: 54px Georgia, serif; line-height: 1; }
+.listening-brand small { display: block; font: 9px "Segoe UI", sans-serif; letter-spacing: .25em; margin-top: 8px; }
+.listening-hero-copy { margin: 44px 0 0 54px; color: #393c30; }
+.listening-hero-copy p { font: 29px/1.8 "KaiTi", "STKaiti", "Songti SC", SimSun, serif; letter-spacing: .13em; margin: 0 0 23px; }
+.listening-hero-copy > span:last-child { font: 14px/1.9 "Songti SC", SimSun, serif; letter-spacing: .06em; }
+.listening-rule { display: block; width: 25px; height: 1px; background: #74745e; margin-bottom: 24px; }
+.listening-hero-caption { position: absolute; bottom: 30px; left: 42px; font-size: 9px; letter-spacing: .22em; color: #fff9eb; text-shadow: 0 1px 5px #463223; }
+.listening-auth .auth-content { display: flex; flex-direction: column; justify-content: center; min-width: 0; min-height: 0; height: auto; padding: 54px clamp(28px, 4.8vw, 76px) 36px; background: #fbfaf7; }
+.listening-tabs { display: flex; width: 208px; margin: 0 auto 42px; border-bottom: 1px solid #dedbd3; }
+.listening-tabs button { width: 50%; padding: 0 0 13px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; color: #929189; font: 19px "Songti SC", SimSun, serif; cursor: pointer; }
+.listening-tabs button[aria-pressed="true"] { color: #33382d; border-bottom-color: #42463c; }
+.listening-heading { margin-bottom: 34px; }
+.listening-auth .auth-content h1 { font: 42px/1.3 "Songti SC", "STSong", SimSun, serif; text-align: center; color: var(--listening-ink); letter-spacing: .08em; margin: 0; }
+.listening-heading p { margin: 13px 0 0; text-align: center; color: var(--listening-muted); font: 16px/1.7 "Songti SC", SimSun, serif; letter-spacing: .05em; }
+.listening-auth .auth-form { display: block; flex: none; }
+.listening-auth .auth-fields { padding: 0; margin: 0; border: 0; min-width: 0; }
+.listening-auth .auth-row { display: flex; flex-direction: column; align-items: stretch; width: 100%; min-height: 0; gap: 10px; margin-bottom: 23px; border: 0; }
+.listening-auth .auth-label { font-size: 13px; font-weight: 400; color: #4a4d43; letter-spacing: .04em; }
+.listening-auth .auth-input-wrap { height: 52px; padding: 0 14px; border: 1px solid var(--listening-line); border-radius: 7px; background: #fcfbf8; transition: border-color .15s, box-shadow .15s; }
+.listening-auth .auth-input-wrap:focus-within { border-color: #8b917e; box-shadow: 0 0 0 3px #89947716; }
+.listening-auth .auth-input { height: 50px; font: 14px "Segoe UI", "Microsoft YaHei", sans-serif; color: #34382e; }
+.listening-auth .auth-input::placeholder { color: #94948a; }
+.listening-auth .password-visibility-button { color: #7b7f72; background: transparent; }
+.listening-auth .password-visibility-button svg { width: 20px; height: 20px; }
+.listening-auth .auth-footer { margin: 6px 0 0; padding: 0; }
+.listening-auth .auth-submit { width: 100%; height: 53px; margin: 10px 0 0; padding: 0 21px; display: flex; justify-content: center; gap: 20px; border: 0; border-radius: 7px; background: #3c4036; color: #fffdf5; font: 18px "Songti SC", SimSun, serif; letter-spacing: .06em; box-shadow: none; transition: background .15s, transform .15s; }
+.listening-auth .auth-submit:not(:disabled):hover { background: #505644; transform: translateY(-1px); }
+.listening-auth .auth-submit:disabled { background: #92968b; color: #fffdf5; opacity: .7; cursor: not-allowed; }
+.listening-auth .auth-message { font: 12px/1.7 "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0 0 10px; color: #a14e3c; text-align: left; }
+.listening-auth .listening-code-message { color: #637447; }
+.listening-switch { margin: 22px 0 0; font: 14px "Songti SC", SimSun, serif; color: var(--listening-muted); text-align: center; }
+.listening-switch button { border: 0; border-bottom: 1px solid #8a8d7d; padding: 0 0 2px; margin-left: 10px; background: transparent; color: #454c3b; font: inherit; cursor: pointer; }
+.listening-signature { margin-top: 40px; text-align: right; color: #8c8c7f; font: italic 17px Georgia, serif; }
+.listening-code-row { display: grid; grid-template-columns: minmax(0,1fr) 112px; gap: 10px; align-items: end; }
+.listening-auth .auth-send-code { align-self: end; width: 112px; height: 52px; margin: 0 0 23px; padding: 0 6px; color: #4f5842; background: #eeeee6; border: 1px solid #d9ddce; border-radius: 7px; font-size: 12px; }
+.listening-auth .auth-send-code:disabled { color: #777b6d; opacity: .65; }
+.listening-auth button:focus-visible { outline: 2px solid #7b886c; outline-offset: 4px; }
+.listening-auth.is-register .auth-content { padding-top: 30px; padding-bottom: 28px; }
+.listening-auth.is-register .listening-tabs { margin-bottom: 23px; }
+.listening-auth.is-register .listening-heading { margin-bottom: 22px; }
+.listening-auth.is-register .auth-content h1 { font-size: 31px; }
+.listening-auth.is-register .auth-row { margin-bottom: 16px; gap: 7px; }
+.listening-auth.is-register .auth-send-code { margin-bottom: 16px; }
+.listening-auth.is-register .listening-signature { margin-top: 24px; }
+@media (min-width:1500px) { .listening-auth.auth-gate { padding-top: max(0px, calc((100dvh - 900px)/2)); } }
+@media (max-width:900px) and (min-width:701px) { .listening-auth.auth-gate { padding: 0 20px; } .listening-hero { padding: 32px 26px; } .listening-hero-copy { margin-left: 0; } .listening-hero-copy p { font-size: 24px; } .listening-auth .auth-content { padding-left: 25px; padding-right: 25px; } .listening-auth .auth-content h1 { font-size: 34px; } }
+@media (max-width:700px) {
+  .listening-auth.auth-gate { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); background: #fbfaf7; }
+  .listening-masthead { display: none; }
+  .listening-auth .auth-panel { display: block; border: 0; border-radius: 0; min-height: 0; box-shadow: none; }
+  .listening-hero { min-height: 0; height: 230px; padding: 24px 26px; background-position: center 61%; }
+  .listening-hero:before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg,#f2e9d9d9,transparent 80%); }
+  .listening-brand { position: relative; font-size: 23px; }
+  .listening-brand-mark { font-size: 43px; }
+  .listening-brand small { font-size: 8px; margin-top: 6px; }
+  .listening-hero-copy { position: relative; margin: 23px 0 0 3px; }
+  .listening-hero-copy p { font-size: 22px; line-height: 1.7; margin: 0; }
+  .listening-hero-copy > span, .listening-hero-caption { display: none; }
+  .listening-auth .auth-content { padding: 28px 28px 22px; max-width: 470px; margin: 0 auto; }
+  .listening-tabs { width: 180px; margin-bottom: 26px; }
+  .listening-tabs button { padding: 8px 0 12px; }
+  .listening-auth .auth-content h1 { font-size: 34px; }
+  .listening-heading { margin-bottom: 28px; }
+  .listening-heading p { font-size: 14px; margin-top: 10px; }
+  .listening-auth .auth-input { font-size: 16px; }
+  .listening-signature { margin-top: 30px; font-size: 15px; }
+  .listening-bottom { padding: 0 28px 18px; min-height: 40px; font-size: 8px; letter-spacing: .1em; }
+  .listening-bottom > :last-child { font-size: 10px; letter-spacing: 0; }
+  .listening-auth.is-register .listening-hero { height: 175px; }
+  .listening-auth.is-register .listening-hero-copy { margin-top: 16px; }
+  .listening-auth.is-register .listening-hero-copy p { font-size: 18px; line-height: 1.6; }
+  .listening-auth.is-register .auth-content h1 { font-size: 28px; }
+  .listening-auth.is-register .auth-content { padding-top: 22px; }
+}
+@media(prefers-reduced-motion:reduce) { .listening-auth .auth-submit, .listening-auth .auth-input-wrap { transition:none; } }

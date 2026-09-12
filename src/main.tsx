@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
+import "./auth-listening.css";
 
 function isStandaloneDisplay() {
   const standaloneNavigator = navigator as Navigator & { standalone?: boolean };
