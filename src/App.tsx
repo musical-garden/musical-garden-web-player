@@ -1,3 +1,4 @@
+import { SongReflection } from "./TrackReflection";
 import { memo, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Extension, Mark, findParentNodeClosestToPos } from "@tiptap/core";
 import Color from "@tiptap/extension-color";
@@ -6647,6 +6648,7 @@ function FullLyricsPage({
           </button>
         </div>
       </nav>
+      <SongReflection trackID={currentTrack?.id} />
       <section className={`lyrics-page-body ${lyricsSeekPreview ? "is-scrubbing" : ""}`} aria-live="polite">
         {content}
       </section>

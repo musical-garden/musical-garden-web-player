@@ -617,3 +617,8 @@ export function sendRegistrationCode(email: string): Promise<{ retry_after_secon
 export function registerEmailUser(payload: { email: string; code: string; username: string; password: string }): Promise<{message: string}> {
   return request("/api/auth/register", { method: "POST", body: JSON.stringify(payload) });
 }
+
+export type TrackReflection = { id: number; position: number; text: string };
+export function getTrackReflections(trackID: number, signal?: AbortSignal) {
+ return request<{ track_id: number; reflections: TrackReflection[] }>(`/api/tracks/${encodeURIComponent(String(trackID))}/reflections`, undefined, { signal });
+}

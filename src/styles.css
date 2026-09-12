@@ -8798,3 +8798,23 @@ form.search-dialog.audio-file-dialog .search-actions button,
 .auth-send-code { display: block; margin: 12px 0 12px auto; }
 .auth-mode-switch:disabled, .auth-send-code:disabled { opacity: .5; cursor: default; }
 .auth-mode-switch:focus-visible, .auth-send-code:focus-visible { outline: 2px solid var(--apple-blue); outline-offset: 3px; }
+
+/* Song reflections are separate from the scrolling lyric text. */
+.lyrics-life-reflection {
+ position: absolute; z-index: 5;
+ top: calc(52% + clamp(150px, 15.8vw, 226px));
+ left: clamp(32px, 5vw, 92px);
+ width: min(340px, 29%); padding: 0; border: 0;
+ background: transparent; color: #b0d8e8;
+ text-align: left; cursor: pointer;
+ font-family: "HanziPen SC", "STXingkai", "KaiTi", cursive;
+ text-shadow: 0 2px 14px #00081875;
+}
+.lyrics-life-reflection-text { font-size: 20px; line-height: 1.6; letter-spacing: .08em; }
+.lyrics-life-reflection:hover { color: #97e5dd; }
+.lyrics-life-reflection:focus-visible { outline: 1px solid #97e5dd; outline-offset: 6px; }
+@media (max-width: 900px) {
+ .lyrics-life-reflection { top: auto; bottom: calc(94px + env(safe-area-inset-bottom)); left: 22px; width: calc(100% - 44px); text-align: center; }
+ .lyrics-life-reflection-text { font-size: 16px; }
+ .lyrics-page:has(.lyrics-life-reflection) .lyrics-page-body { padding-bottom: calc(158px + env(safe-area-inset-bottom)); }
+}
