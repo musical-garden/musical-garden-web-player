@@ -1,3 +1,5 @@
+import { createEqualizerRouting } from "./equalizerRouting";
+import { createHeartbeatScheduler } from "./heartbeatScheduler";
 import { startVisiblePlaybackLoop } from "./playbackScheduler";
 import { SongReflection } from "./TrackReflection";
 import { memo, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -264,6 +266,7 @@ type EqualizerAudioChain = {
   source: MediaElementAudioSourceNode;
   filters: BiquadFilterNode[];
   analyser: AnalyserNode;
+  routing: ReturnType<typeof createEqualizerRouting>;
 };
 type BrowserWindowWithAudioContext = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -720,6 +723,8 @@ function DocumentTreeIcon() {
 }
 
 function App() {
+  const [heartbeatScheduler] = useState(createHeartbeatScheduler);
+  const heartbeatRequestsRef = useRef(new Set<string>());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const equalizerChainRef = useRef<EqualizerAudioChain | null>(null);
   const lyricsVisualizerStopRef = useRef<(() => void) | null>(null);
@@ -903,7 +908,6 @@ function App() {
   const nextTrackToPreload = useMemo(() => {
     const currentTrackInQueue = Boolean(currentTrack?.id && playbackQueue.some((track) => track.id === currentTrack.id));
     if (
-      !isPlaying ||
       playbackMode !== "all" ||
       !currentTrack?.stream_url ||
       playbackQueue.length < 2 ||
@@ -917,7 +921,7 @@ function App() {
       return null;
     }
     return nextTrack;
-  }, [currentTrack, isPlaying, playbackMode, playbackQueue]);
+  }, [currentTrack, playbackMode, playbackQueue]);
   const nextTrackPreloadURL = nextTrackToPreload?.stream_url && currentStreamTicket ? streamURL(nextTrackToPreload, currentStreamTicket) : "";
 
   const hasTransientPopup = Boolean(
@@ -1078,13 +1082,9 @@ function App() {
       return;
     }
 
-    const intervalID = window.setInterval(() => {
+    return heartbeatScheduler.subscribe(() => {
       void sendPlaybackHeartbeat("playing");
     }, playbackHeartbeatIntervalMs);
-
-    return () => {
-      window.clearInterval(intervalID);
-    };
   }, [authSession?.userId, playbackSession?.token, currentTrack?.id, isPlaying]);
 
   useEffect(() => {
@@ -1454,16 +1454,23 @@ function App() {
       return;
     }
 
+    let stopped = false;
+    let pending = false;
+    let lastPresenceAt = -Infinity;
     const reportPresence = async () => {
+      if (stopped || pending || performance.now() - lastPresenceAt < 5000) return;
+      pending = true;
+      lastPresenceAt = performance.now();
       try {
         const response = await sendPresenceHeartbeat({
           session_id: sessionID
         });
+        if (stopped) return;
         setOnlineCount(response.online_count);
         setOnlineUsers(response.online_users ?? []);
       } catch {
         // Presence reporting is best effort.
-      }
+      } finally { pending = false; }
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -1472,13 +1479,14 @@ function App() {
     };
 
     void reportPresence();
-    const intervalId = window.setInterval(() => {
+    const stopHeartbeat = heartbeatScheduler.subscribe(() => {
       void reportPresence();
     }, presenceHeartbeatIntervalMs);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.clearInterval(intervalId);
+      stopped = true;
+      stopHeartbeat();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       void sendPresenceOffline({ session_id: sessionID }).catch(() => undefined);
     };
@@ -1635,6 +1643,8 @@ function App() {
       return;
     }
 
+    if (!isPlaying) return;
+
     nextTrackPreloadTimerRef.current = window.setTimeout(() => {
       const preloadAudio = nextTrackPreloadAudioRef.current ?? new Audio();
       nextTrackPreloadAudioRef.current = preloadAudio;
@@ -1656,7 +1666,7 @@ function App() {
         nextTrackPreloadTimerRef.current = null;
       }
     };
-  }, [nextTrackPreloadURL]);
+  }, [nextTrackPreloadURL, isPlaying]);
 
   useEffect(() => {
     return () => {
@@ -3434,6 +3444,11 @@ function App() {
     if (!authSession?.userId || !playbackSession?.token) {
       return false;
     }
+    const token = playbackSession.token;
+    const trackID = currentTrack?.id;
+    const requestKey = `${token}:${trackID}:${state}`;
+    if (heartbeatRequestsRef.current.has(requestKey)) return false;
+    heartbeatRequestsRef.current.add(requestKey);
     try {
       const response = await heartbeatPlaybackSession({
         token: playbackSession.token,
@@ -3442,9 +3457,11 @@ function App() {
         tab_id: playbackTabIdRef.current ?? createPlaybackTabID(),
         state
       });
+      if (playbackSessionRef.current?.token !== token || currentTrackRef.current?.id !== trackID) return false;
       applyPlaybackSession(response);
       return true;
     } catch (error) {
+      if (playbackSessionRef.current?.token !== token || currentTrackRef.current?.id !== trackID) return false;
       if (error instanceof ApiError && error.status === 409) {
         handlePlaybackTakenOver();
         return false;
@@ -3453,7 +3470,7 @@ function App() {
         showToast(error instanceof Error ? error.message : "播放会话续期失败");
       }
       return false;
-    }
+    } finally { heartbeatRequestsRef.current.delete(requestKey); }
   }
 
   function releaseCurrentPlaybackSession() {
@@ -4222,13 +4239,10 @@ function App() {
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.82;
 
-      source.connect(filters[0]);
-      for (let index = 0; index < filters.length - 1; index += 1) {
-        filters[index].connect(filters[index + 1]);
-      }
-      filters[filters.length - 1].connect(analyser);
+      const routing = createEqualizerRouting(source, filters, analyser,
+        equalizerBands.some(band => equalizerGains[band.id] !== 0), () => context.currentTime);
       analyser.connect(context.destination);
-      equalizerChainRef.current = { audio, context, source, filters, analyser };
+      equalizerChainRef.current = { audio, context, source, filters, analyser, routing };
       applyEqualizerGains(equalizerGains, true);
       return context;
     } catch {
@@ -4242,8 +4256,7 @@ function App() {
       return;
     }
     try {
-      chain.source.disconnect();
-      chain.filters.forEach((filter) => filter.disconnect());
+      chain.routing.dispose();
       chain.analyser.disconnect();
     } catch {
       // Disconnection can throw after browser-side audio teardown.
@@ -4303,6 +4316,7 @@ function App() {
     if (!chain) {
       return;
     }
+    chain.routing.setActive(equalizerBands.some(band => clampEqualizerGain(gains[band.id]) !== 0), immediate);
     equalizerBands.forEach((band, index) => {
       const filter = chain.filters[index];
       if (!filter) {
@@ -5766,6 +5780,91 @@ function shouldReduceMotion() {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 }
 
+const MemoizedLyricsScene = memo(function LyricsScene({ isPlaying, coverImageURL, sceneMotionStyle, coverImageStyle }: { isPlaying: boolean; coverImageURL: string; sceneMotionStyle: CSSProperties; coverImageStyle: CSSProperties }) {
+ return (
+      <div className={`lyrics-cinematic-scene ${isPlaying ? "is-playing" : "is-paused"} ${coverImageURL ? "has-cover" : "no-cover"}`} style={sceneMotionStyle} aria-hidden="true">
+        <span className="lyrics-cover-art" style={coverImageStyle} />
+        <span className="lyrics-color-field base" />
+        <span className="lyrics-color-field lift" />
+        <svg className="lyrics-light-threads" viewBox="0 0 1440 420" preserveAspectRatio="none">
+          <path className="thread thread-one" d="M-80 236 C 180 156, 318 318, 536 220 S 896 120, 1164 222 S 1432 292, 1520 186" />
+          <path className="thread thread-two" d="M-80 182 C 172 256, 344 118, 568 196 S 902 292, 1118 178 S 1392 112, 1520 236" />
+          <path className="thread thread-three" d="M-80 286 C 150 220, 336 262, 514 288 S 806 246, 998 286 S 1308 340, 1520 252" />
+        </svg>
+        <span className="lyrics-stage-light" />
+        <span className="lyrics-glass-depth" />
+        <span className="lyrics-film-texture" />
+      </div>
+ );
+});
+
+type LyricsRowProps = {
+ line: LyricLine; index: number; lineRef?: RefObject<HTMLParagraphElement | null>;
+ lineClassName: string; hasKaraokeWords: boolean; karaokeDisplayTime: number;
+ isSeekPreviewTarget: boolean; seekPreviewTime?: number; seekPreviewDirection: string;
+ handlers: { onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void; onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void; onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => void };
+};
+const MemoizedLyricsRow = memo(function LyricsRow({ line, index, lineRef, lineClassName, hasKaraokeWords, karaokeDisplayTime, isSeekPreviewTarget, seekPreviewTime, seekPreviewDirection, handlers }: LyricsRowProps) {
+ return (
+            <p
+              key={`${index}-${line.text}`}
+              ref={lineRef}
+              className={lineClassName}
+              data-lyric-index={index}
+            >
+              {hasKaraokeWords ? (
+                <span className="karaoke-line" aria-label={line.text}>
+                  {line.words?.map((word, wordIndex) => {
+                    const duration = word.end_seconds - word.start_seconds;
+                    const progress = duration > 0
+                      ? Math.min(1, Math.max(0, (karaokeDisplayTime - word.start_seconds) / duration))
+                      : karaokeDisplayTime >= word.end_seconds ? 1 : 0;
+                    const progressClassName = progress >= 0.999
+                      ? "is-sung"
+                      : progress > 0
+                        ? "is-current"
+                        : "is-upcoming";
+                    return (
+                      <span
+                        aria-hidden="true"
+                        className={`karaoke-word ${progressClassName}`}
+                        data-text={word.text}
+                        key={`${wordIndex}-${word.start_seconds}-${word.text}`}
+                        style={{ "--karaoke-progress": `${(progress * 100).toFixed(2)}%` } as CSSProperties}
+                      >
+                        {word.text}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : line.text}
+              {isSeekPreviewTarget && seekPreviewTime !== undefined ? (
+                <button
+                  className={`lyrics-inline-seek-indicator ${seekPreviewDirection === "快退" ? "is-backward" : "is-forward"}`}
+                  type="button"
+                  aria-label={`${seekPreviewDirection}到 ${formatDuration(seekPreviewTime)}`}
+                  title={`${seekPreviewDirection}到 ${formatDuration(seekPreviewTime)}`}
+                  onClick={handlers.onClick}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onPointerDown={handlers.onPointerDown}
+                  onPointerUp={handlers.onPointerUp}
+                >
+                  <svg className="lyrics-inline-seek-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    {seekPreviewDirection === "快退" ? (
+                      <path d="M14.8 6.7v10.6L6.7 12l8.1-5.3Z" />
+                    ) : (
+                      <path d="M9.2 6.7v10.6l8.1-5.3-8.1-5.3Z" />
+                    )}
+                  </svg>
+                </button>
+              ) : null}
+            </p>
+ );
+});
+
 type FullLyricsPageProps = {
   status: LyricsStatus;
   currentTrack: Track | null;
@@ -6395,6 +6494,14 @@ function FullLyricsPage({
     }
   }
 
+  const seekHandlersRef = useRef({ onClick: handleLyricsSeekIndicatorClick, onPointerDown: handleLyricsSeekIndicatorPointerDown, onPointerUp: handleLyricsSeekIndicatorPointerUp });
+  seekHandlersRef.current = { onClick: handleLyricsSeekIndicatorClick, onPointerDown: handleLyricsSeekIndicatorPointerDown, onPointerUp: handleLyricsSeekIndicatorPointerUp };
+  const stableSeekHandlers = useMemo(() => ({
+    onClick: (event: ReactMouseEvent<HTMLButtonElement>) => seekHandlersRef.current.onClick(event),
+    onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => seekHandlersRef.current.onPointerDown(event),
+    onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => seekHandlersRef.current.onPointerUp(event)
+  }), []);
+
   let content: ReactNode;
   if (!currentTrack) {
     content = (
@@ -6454,64 +6561,11 @@ function FullLyricsPage({
           ]
             .filter(Boolean)
             .join(" ");
-          return (
-            <p
-              key={`${index}-${line.text}`}
-              ref={index === focalLineIndex ? activeLineRef : undefined}
-              className={lineClassName}
-              data-lyric-index={index}
-            >
-              {hasKaraokeWords ? (
-                <span className="karaoke-line" aria-label={line.text}>
-                  {line.words?.map((word, wordIndex) => {
-                    const duration = word.end_seconds - word.start_seconds;
-                    const progress = duration > 0
-                      ? Math.min(1, Math.max(0, (karaokeDisplayTime - word.start_seconds) / duration))
-                      : karaokeDisplayTime >= word.end_seconds ? 1 : 0;
-                    const progressClassName = progress >= 0.999
-                      ? "is-sung"
-                      : progress > 0
-                        ? "is-current"
-                        : "is-upcoming";
-                    return (
-                      <span
-                        aria-hidden="true"
-                        className={`karaoke-word ${progressClassName}`}
-                        data-text={word.text}
-                        key={`${wordIndex}-${word.start_seconds}-${word.text}`}
-                        style={{ "--karaoke-progress": `${(progress * 100).toFixed(2)}%` } as CSSProperties}
-                      >
-                        {word.text}
-                      </span>
-                    );
-                  })}
-                </span>
-              ) : line.text}
-              {isSeekPreviewTarget && lyricsSeekPreview ? (
-                <button
-                  className={`lyrics-inline-seek-indicator ${seekPreviewDirection === "快退" ? "is-backward" : "is-forward"}`}
-                  type="button"
-                  aria-label={`${seekPreviewDirection}到 ${formatDuration(lyricsSeekPreview.time)}`}
-                  title={`${seekPreviewDirection}到 ${formatDuration(lyricsSeekPreview.time)}`}
-                  onClick={handleLyricsSeekIndicatorClick}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onPointerDown={handleLyricsSeekIndicatorPointerDown}
-                  onPointerUp={handleLyricsSeekIndicatorPointerUp}
-                >
-                  <svg className="lyrics-inline-seek-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                    {seekPreviewDirection === "快退" ? (
-                      <path d="M14.8 6.7v10.6L6.7 12l8.1-5.3Z" />
-                    ) : (
-                      <path d="M9.2 6.7v10.6l8.1-5.3-8.1-5.3Z" />
-                    )}
-                  </svg>
-                </button>
-              ) : null}
-            </p>
-          );
+          return <MemoizedLyricsRow key={`${index}-${line.text}`} line={line} index={index}
+            lineRef={index === focalLineIndex ? activeLineRef : undefined} lineClassName={lineClassName}
+            hasKaraokeWords={hasKaraokeWords} karaokeDisplayTime={hasKaraokeWords ? karaokeDisplayTime : 0}
+            isSeekPreviewTarget={isSeekPreviewTarget} seekPreviewTime={isSeekPreviewTarget ? lyricsSeekPreview?.time : undefined}
+            seekPreviewDirection={isSeekPreviewTarget ? seekPreviewDirection : ""} handlers={stableSeekHandlers} />;
         })}
       </div>
     );
@@ -6528,19 +6582,7 @@ function FullLyricsPage({
       onClickCapture={handleLyricsClickCapture}
       onDoubleClick={handleLyricsDoubleClick}
     >
-      <div className={`lyrics-cinematic-scene ${isPlaying ? "is-playing" : "is-paused"} ${coverImageURL ? "has-cover" : "no-cover"}`} style={sceneMotionStyle} aria-hidden="true">
-        <span className="lyrics-cover-art" style={coverImageStyle} />
-        <span className="lyrics-color-field base" />
-        <span className="lyrics-color-field lift" />
-        <svg className="lyrics-light-threads" viewBox="0 0 1440 420" preserveAspectRatio="none">
-          <path className="thread thread-one" d="M-80 236 C 180 156, 318 318, 536 220 S 896 120, 1164 222 S 1432 292, 1520 186" />
-          <path className="thread thread-two" d="M-80 182 C 172 256, 344 118, 568 196 S 902 292, 1118 178 S 1392 112, 1520 236" />
-          <path className="thread thread-three" d="M-80 286 C 150 220, 336 262, 514 288 S 806 246, 998 286 S 1308 340, 1520 252" />
-        </svg>
-        <span className="lyrics-stage-light" />
-        <span className="lyrics-glass-depth" />
-        <span className="lyrics-film-texture" />
-      </div>
+      <MemoizedLyricsScene isPlaying={isPlaying} coverImageURL={coverImageURL} sceneMotionStyle={sceneMotionStyle} coverImageStyle={coverImageStyle} />
       {currentTrack ? (
         <div className="lyrics-album-cluster" aria-hidden="true">
           <div className="lyrics-album-fallback-copy">

@@ -1,11 +1,23 @@
-# Playback rendering performance
+# Playback performance
 
-- Karaoke keeps its 33 ms frame-aligned clock in FullLyricsPage. The parent App uses its existing 250 ms playback-time update path, rather than rerendering the whole application for every karaoke tick.
-- Spectrum sampling keeps the existing 320 ms cadence and tolerance, using a timer instead of waking on every display frame.
-- Both visual loops cancel their scheduled work when the document is hidden, resume immediately when visible, and clean up on unmount. Background playback and the audio signal chain are unchanged.
-- Hidden-page timeupdate events update the time ref without scheduling React renders. Returning to the page synchronizes from the audio element.
-- Decorative animation is paused only while the document is hidden. Foreground visuals, mobile layout, EQ and audio formats are unchanged.
+## Rendering
 
-Validation: `npm run build` and `node --experimental-strip-types --test tests/playbackScheduler.test.mjs` (Node 24). Tests cover cadence, hidden startup, background cancellation, foreground resynchronization and teardown.
+The 33 ms frame-aligned lyric clock lives inside FullLyricsPage, while App uses its existing 250 ms playback-time updates. Individual lyric rows are memoized: only the active karaoke row receives the current display time. Static rows still update when their active/distance/seek state changes. Seek handlers use stable forwarding functions so cached rows always invoke current logic. The decorative scene is separately memoized, retaining all existing visual effects.
 
-Actual device energy savings are not measured by these tests. Compare the same track and screen brightness on iPhone, including foreground lyrics, seeking, pause/resume, track changes, and lock-screen playback; use Safari Web Inspector to compare CPU and rendering time.
+Spectrum sampling keeps its 320 ms cadence and tolerance without waking on every display frame. Visible-page loops stop in the background and resume immediately. Audio playback continues. Hidden-page playback-time events update refs without scheduling normal UI renders; decorative animation pauses while hidden.
+
+## Audio
+
+With all EQ gains exactly zero, the source goes directly to the existing analyser, skipping the ten disconnected filters. Enabling an EQ band reconnects the filter chain before applying the existing 18 ms gain ramp. Resetting to flat waits 250 ms for the ramp to settle before pinning zero gain and switching to the direct path. Pending bypass is cancelled if settings change again; cleanup cancels the timer and disconnects routing. AudioContext and analyser lifetime are unchanged, avoiding media-source recreation on iOS.
+
+## Network
+
+Presence and playback renewals share a timer scheduler. Their existing 25 s and 5 s renewal intervals are retained, including background playback. Duplicate pending renewals are suppressed; responses for an old track/token cannot update the new session. Visibility-triggered presence updates are deduplicated. No server timeout or playback-right policy changes.
+
+Next-song preloading still uses one audio element. Pausing does not erase its source and downloaded buffer. New preloads start only while playing; changing the target, session URL, or logging out still clears the obsolete source.
+
+## Verification
+
+Run `npm run build` and `node --experimental-strip-types --test tests/*.test.mjs` with Node 24. Tests cover visible/hidden clock behavior, cleanup, EQ identity routing, rapid EQ changes, and shared heartbeat deadlines.
+
+These checks do not measure iPhone power consumption or replace device audio/visual testing. Compare the same track, network and brightness, including karaoke seeking, EQ changes, next-song playback, pause/resume, and lock-screen playback. No quantified battery or temperature improvement is claimed.
