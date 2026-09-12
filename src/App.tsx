@@ -1,3 +1,4 @@
+import { startVisiblePlaybackLoop } from "./playbackScheduler";
 import { SongReflection } from "./TrackReflection";
 import { memo, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type UIEvent as ReactUIEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Extension, Mark, findParentNodeClosestToPos } from "@tiptap/core";
@@ -721,10 +722,9 @@ function DocumentTreeIcon() {
 function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const equalizerChainRef = useRef<EqualizerAudioChain | null>(null);
-  const lyricsVisualizerFrameRef = useRef<number | null>(null);
+  const lyricsVisualizerStopRef = useRef<(() => void) | null>(null);
   const lyricsVisualizerDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const lyricsVisualizerStateRef = useRef<LyricsVisualizerState>(emptyLyricsVisualizerState);
-  const lyricsVisualizerLastPaintAtRef = useRef(0);
   const toastTimerRef = useRef<number | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<LongPressStart | null>(null);
@@ -751,8 +751,6 @@ function App() {
   const pendingAudioResumeTimeRef = useRef<number | null>(null);
   const currentTimeCommitTimerRef = useRef<number | null>(null);
   const currentTimeLastCommittedAtRef = useRef(0);
-  const lyricsClockFrameRef = useRef<number | null>(null);
-  const lyricsClockLastPaintAtRef = useRef(0);
   const lastAppliedAudioSourceRef = useRef("");
   const currentTrackRef = useRef<Track | null>(null);
   const currentTrackStreamURLRef = useRef("");
@@ -1234,7 +1232,6 @@ function App() {
         clearPopupActivityTimer();
       }
       clearCurrentTimeCommitTimer();
-      stopLyricsClock();
       clearPendingTrackPlay();
       cancelLongPress();
       cancelCategoryLongPress();
@@ -1281,55 +1278,30 @@ function App() {
       lyricsVisualizerDataRef.current = frequencyData;
     }
 
-    let isCancelled = false;
-    const paintVisualizer = (timestamp: number) => {
-      if (isCancelled) {
-        return;
+    lyricsVisualizerStopRef.current = startVisiblePlaybackLoop(() => {
+      const nextVisualizer = readLyricsVisualizerState(analyser, frequencyData);
+      if (!areLyricsVisualizerStatesClose(lyricsVisualizerStateRef.current, nextVisualizer)) {
+        lyricsVisualizerStateRef.current = nextVisualizer;
+        setLyricsVisualizer(nextVisualizer);
       }
-      if (timestamp - lyricsVisualizerLastPaintAtRef.current >= lyricsVisualizerPaintIntervalMs) {
-        lyricsVisualizerLastPaintAtRef.current = timestamp;
-        const nextVisualizer = readLyricsVisualizerState(analyser, frequencyData);
-        if (!areLyricsVisualizerStatesClose(lyricsVisualizerStateRef.current, nextVisualizer)) {
-          lyricsVisualizerStateRef.current = nextVisualizer;
-          setLyricsVisualizer(nextVisualizer);
-        }
-      }
-      lyricsVisualizerFrameRef.current = window.requestAnimationFrame(paintVisualizer);
-    };
-
-    lyricsVisualizerFrameRef.current = window.requestAnimationFrame(paintVisualizer);
-    return () => {
-      isCancelled = true;
-      stopLyricsVisualizer();
-    };
+    }, lyricsVisualizerPaintIntervalMs);
+    return () => stopLyricsVisualizer();
   }, [activePage, isPlaying, currentTrack?.id, currentTrack?.stream_url]);
 
   useEffect(() => {
-    if (activePage !== "lyrics" || !isPlaying || !currentTrack?.stream_url) {
-      stopLyricsClock();
-      return;
-    }
-
-    clearCurrentTimeCommitTimer();
-    let isCancelled = false;
-    const paintLyricsClock = (timestamp: number) => {
-      if (isCancelled) {
-        return;
-      }
-      const audio = audioRef.current;
-      if (audio && Number.isFinite(audio.currentTime) && timestamp - lyricsClockLastPaintAtRef.current >= lyricsClockPaintIntervalMs) {
-        lyricsClockLastPaintAtRef.current = timestamp;
-        commitCurrentTime(audio.currentTime);
-      }
-      lyricsClockFrameRef.current = window.requestAnimationFrame(paintLyricsClock);
+    const syncVisibility = () => {
+      const hidden = document.visibilityState !== "visible";
+      document.documentElement.dataset.playbackPageHidden = String(hidden);
+      if (hidden) clearCurrentTimeCommitTimer();
+      else if (audioRef.current) commitCurrentTime(audioRef.current.currentTime);
     };
-
-    lyricsClockFrameRef.current = window.requestAnimationFrame(paintLyricsClock);
+    syncVisibility();
+    document.addEventListener("visibilitychange", syncVisibility);
     return () => {
-      isCancelled = true;
-      stopLyricsClock();
+      document.removeEventListener("visibilitychange", syncVisibility);
+      delete document.documentElement.dataset.playbackPageHidden;
     };
-  }, [activePage, isPlaying, currentTrack?.id, currentTrack?.stream_url]);
+  }, []);
 
   useEffect(() => {
     if (!hasTransientPopup) {
@@ -3607,7 +3579,6 @@ function App() {
     audioStreamRecoveryRef.current = null;
     clearPendingTrackPlay();
     clearCurrentTimeCommitTimer();
-    stopLyricsClock();
     stopLyricsVisualizer();
 
     if (nextTrackPreloadTimerRef.current !== null) {
@@ -4282,23 +4253,12 @@ function App() {
   }
 
   function stopLyricsVisualizer(reset = true) {
-    if (lyricsVisualizerFrameRef.current !== null) {
-      window.cancelAnimationFrame(lyricsVisualizerFrameRef.current);
-      lyricsVisualizerFrameRef.current = null;
-    }
-    lyricsVisualizerLastPaintAtRef.current = 0;
+    lyricsVisualizerStopRef.current?.();
+    lyricsVisualizerStopRef.current = null;
     if (reset) {
       lyricsVisualizerStateRef.current = emptyLyricsVisualizerState;
       setLyricsVisualizer(emptyLyricsVisualizerState);
     }
-  }
-
-  function stopLyricsClock() {
-    if (lyricsClockFrameRef.current !== null) {
-      window.cancelAnimationFrame(lyricsClockFrameRef.current);
-      lyricsClockFrameRef.current = null;
-    }
-    lyricsClockLastPaintAtRef.current = 0;
   }
 
   function clearCurrentTimeCommitTimer() {
@@ -4318,6 +4278,7 @@ function App() {
 
   function syncCurrentTimeFromAudio(nextTime: number, force = false) {
     currentTimeRef.current = nextTime;
+    if (document.visibilityState !== "visible" && !force) return;
     if (force) {
       commitCurrentTime(nextTime);
       return;
@@ -4701,7 +4662,6 @@ function App() {
   const activeEqualizerPresetId = getEqualizerPresetId(equalizerGains);
   const isViewingActiveCategory = activeTab === "分类" && Boolean(activeCategory);
   const lyricLines = trackLyrics?.lines ?? [];
-  const activeLyricIndex = getActiveLyricIndex(lyricLines, currentTime);
   const canSortMusicColumns = isLibraryMusicTab(activeTab);
   const canShowTrackStatus = isLibraryMusicTab(activeTab) || activeTab === "收藏" || activeTab === "分类";
   const statusCategory = activeTab === "分类" ? activeCategory : null;
@@ -5207,7 +5167,7 @@ function App() {
             status={lyricsStatus}
             currentTrack={currentTrack}
             lines={lyricLines}
-            activeLineIndex={activeLyricIndex}
+            audioRef={audioRef}
             currentTime={currentTime}
             visualizer={lyricsVisualizer}
             isPlaying={isPlaying}
@@ -5810,7 +5770,7 @@ type FullLyricsPageProps = {
   status: LyricsStatus;
   currentTrack: Track | null;
   lines: LyricLine[];
-  activeLineIndex: number;
+  audioRef: RefObject<HTMLAudioElement | null>;
   currentTime: number;
   visualizer: LyricsVisualizerState;
   isPlaying: boolean;
@@ -5826,8 +5786,8 @@ function FullLyricsPage({
   status,
   currentTrack,
   lines,
-  activeLineIndex,
-  currentTime,
+  audioRef,
+  currentTime: fallbackCurrentTime,
   visualizer,
   isPlaying,
   savedScroll,
@@ -5837,6 +5797,18 @@ function FullLyricsPage({
   onNextTrack,
   onToggleFullscreen
 }: FullLyricsPageProps) {
+  // Keep karaoke's precise clock inside the lyrics page instead of rerendering App.
+  const [lyricClock, setLyricClock] = useState({ trackID: currentTrack?.id, time: fallbackCurrentTime });
+  useEffect(() => {
+    if (!isPlaying || !currentTrack?.id || !currentTrack.stream_url) return;
+    const trackID = currentTrack.id;
+    return startVisiblePlaybackLoop(() => {
+      const audio = audioRef.current;
+      if (audio && Number.isFinite(audio.currentTime)) setLyricClock({ trackID, time: audio.currentTime });
+    }, lyricsClockPaintIntervalMs, true);
+  }, [isPlaying, currentTrack?.id, currentTrack?.stream_url, audioRef]);
+  const currentTime = isPlaying && lyricClock.trackID === currentTrack?.id ? lyricClock.time : fallbackCurrentTime;
+  const activeLineIndex = getActiveLyricIndex(lines, currentTime);
   const activeLineRef = useRef<HTMLParagraphElement | null>(null);
   const lyricsListRef = useRef<HTMLDivElement | null>(null);
   const initialSyncedLineIndexRef = useRef<number | null>(null);
@@ -6661,7 +6633,7 @@ const MemoizedFullLyricsPage = memo(FullLyricsPage, (previous, next) => {
     previous.status === next.status &&
     previous.currentTrack === next.currentTrack &&
     previous.lines === next.lines &&
-    previous.activeLineIndex === next.activeLineIndex &&
+    previous.audioRef === next.audioRef &&
     previous.currentTime === next.currentTime &&
     previous.visualizer === next.visualizer &&
     previous.isPlaying === next.isPlaying

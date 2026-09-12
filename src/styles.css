@@ -8832,3 +8832,10 @@ form.search-dialog.audio-file-dialog .search-actions button,
   padding-bottom: 0;
  }
 }
+
+/* Stop decorative work while background audio continues normally. */
+html[data-playback-page-hidden="true"] .lyrics-page *,
+html[data-playback-page-hidden="true"] .lyrics-page *::before,
+html[data-playback-page-hidden="true"] .lyrics-page *::after {
+ animation-play-state: paused !important;
+}
